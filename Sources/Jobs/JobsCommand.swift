@@ -43,7 +43,6 @@ public class JobsCommand: Command {
     public func run(using context: CommandContext) throws -> EventLoopFuture<Void> {
         context.console.info("Starting Jobs worker")
 
-        let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         let signalQueue = DispatchQueue(label: "vapor.jobs.command.SignalHandlingQueue")
 
         //SIGTERM
@@ -67,26 +66,25 @@ public class JobsCommand: Command {
         intSignalSource.resume()
 
         var shutdownPromises: [EventLoopPromise<Void>] = []
-        for eventLoop in elg.makeIterator()! {
-            let sub = context.container.subContainer(on: eventLoop)
-            let console = context.console
-            let queueName = context.options["queue"] ?? QueueName.default.name
-            let shutdownPromise: EventLoopPromise<Void> = eventLoop.newPromise()
+        let eventLoop = context.container.eventLoop
+        let sub = context.container.subContainer(on: eventLoop)
+        let console = context.console
+        let queueName = context.options["queue"] ?? QueueName.default.name
+        let shutdownPromise: EventLoopPromise<Void> = eventLoop.newPromise()
 
-            shutdownPromises.append(shutdownPromise)
+        shutdownPromises.append(shutdownPromise)
 
-            eventLoop.submit {
-                try self.setupTask(eventLoop: eventLoop,
-                                   container: sub,
-                                   queueName: queueName,
-                                   console: console,
-                                   promise: shutdownPromise)
-            }.catch {
-                console.error("Could not boot EventLoop: \($0)")
-            }
+        eventLoop.submit {
+            try self.setupTask(eventLoop: eventLoop,
+                               container: sub,
+                               queueName: queueName,
+                               console: console,
+                               promise: shutdownPromise)
+        }.catch {
+            console.error("Could not boot EventLoop: \($0)")
         }
 
-        return .andAll(shutdownPromises.map { $0.futureResult }, eventLoop: elg.next())
+        return .andAll(shutdownPromises.map { $0.futureResult }, eventLoop: context.container.next())
     }
 
     private func setupTask(eventLoop: EventLoop,
